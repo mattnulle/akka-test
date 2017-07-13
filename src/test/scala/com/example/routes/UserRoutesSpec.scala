@@ -27,11 +27,17 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
     one.email shouldBe two.email
     one.password shouldBe two.password
     one.name shouldBe two.name
-    // Check that the time difference is less than 1000 milliseconds
-    timeDifference(one.createdAt, two.createdAt) should be < 1000
+    // Check that the time difference is less than a couple seconds
+    timeDifference(one.createdAt, two.createdAt) should be < 2000
   }
 
   "UserRoutes" should {
+    "answer to any requests to /users/reset by clearing the user list" in {
+      Get("/users/reset") ~> uRoutes.userRoutes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[String] shouldBe "{\n  \"users\": []\n}"
+      }
+    }
     "answer to GET requests to `/users`" in {
       Get("/users") ~> uRoutes.userRoutes ~> check {
         status shouldBe StatusCodes.OK
