@@ -1,0 +1,10 @@
+[0m[[0minfo[0m] [0m[32mUserRoutesSpec:[0m[0m
+[0m[[0minfo[0m] [0m[32mUserRoutes[0m[0m
+[0m[[0minfo[0m] [0m[32m- should answer to any requests to /users/reset by clearing the user list[0m[0m
+[0m[[0minfo[0m] [0m[32m- should answer to GET requests to `/users`[0m[0m
+[0m[[0minfo[0m] [0m[32m- should handle a POST request to `/users`[0m[0m
+[0m[[0minfo[0m] [0m[32m- should reject a POST request if the email is invalid[0m[0m
+[0m[[0minfo[0m] [0m[32m- should reject a POST request if the password is too short[0m[0m
+[0m[[0minfo[0m] [0m[32m- should return the user posted previously when GETting from `/users`[0m[0m
+[0m[[0minfo[0m] [0m[32mUserManager[0m[0m
+[0m[[0minfo[0m] [0m[32m- should keep its state after a restart[0m[0m
