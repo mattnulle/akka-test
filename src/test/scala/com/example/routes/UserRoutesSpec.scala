@@ -14,7 +14,7 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
 
   val now = dateFormat.format(new java.util.Date())
 
-  val request = new UserRequest("matt@bitbrew.com", "mypassword", Some("Matt"))
+  val request = new CreateUserRequest("matt@bitbrew.com", "mypassword", Some("Matt"))
   val user = new User(request.email, request.password, request.name, now)
   val emailError = new ErrorMessage("invalid", "email", "The email address does not appear to be valid")
   val passwordError = new ErrorMessage("invalid", "password", "The password is not strong enough")
@@ -53,7 +53,7 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
     }
     "reject a POST request if the email is invalid" in {
       // bad request in email
-      val request = new UserRequest("matt@ bitbrew.com", "mypassword", None)
+      val request = new CreateUserRequest("matt@ bitbrew.com", "mypassword", None)
       Post("/users").withEntity(ContentTypes.`application/json`, request.toJson.compactPrint) ~> uRoutes.userRoutes ~> check {
         status shouldBe StatusCodes.UnprocessableEntity
         responseAs[String].parseJson.convertTo[ErrorMessage] shouldBe emailError
@@ -61,7 +61,7 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
     }
     "reject a POST request if the password is too short" in {
       // bad request in password
-      val request = new UserRequest("matt@bitbrew.com", "pass", None)
+      val request = new CreateUserRequest("matt@bitbrew.com", "pass", None)
       Post("/users").withEntity(ContentTypes.`application/json`, request.toJson.prettyPrint) ~> uRoutes.userRoutes ~> check {
         status shouldBe StatusCodes.UnprocessableEntity
         responseAs[String].parseJson.convertTo[ErrorMessage] shouldBe passwordError
