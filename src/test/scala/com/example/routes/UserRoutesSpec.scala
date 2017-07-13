@@ -1,15 +1,10 @@
 package com.example.routes
 
-import akka.actor.{ PoisonPill, Props }
+import akka.actor.Props
 import akka.http.scaladsl.model.{ ContentTypes, StatusCodes }
 import akka.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.{ Matchers, WordSpec }
 import spray.json._
-import akka.pattern.ask
-import akka.util.Timeout
-
-import scala.concurrent.Await
-import scala.concurrent.duration._
 
 class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with PrettyJsonFormatSupport {
 
@@ -37,17 +32,10 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
   }
 
   "UserRoutes" should {
-    "answer to any requests to /users/reset by clearing the user list" in {
-      Get("/users/reset") ~> uRoutes.userRoutes ~> check {
-        status shouldBe StatusCodes.OK
-        responseAs[String] shouldBe "{\n  \"users\": []\n}"
-      }
-    }
     "answer to GET requests to `/users`" in {
       Get("/users") ~> uRoutes.userRoutes ~> check {
         status shouldBe StatusCodes.OK
-        val response = responseAs[String].parseJson.convertTo[Users]
-        response shouldBe a[Users]
+        responseAs[String] shouldBe "{\n  \"users\": []\n}"
       }
     }
     "handle a POST request to `/users`" in {
@@ -80,29 +68,6 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
         val response = responseAs[String].parseJson.convertTo[Users].users.last
         compareUsers(response, user)
       }
-    }
-  }
-  "UserManager" should {
-    "keep its state after a restart" in {
-      implicit val timeout: Timeout = 5.seconds
-
-      val userMan = system.actorOf(Props[UserManager], "userMan-id")
-      userMan ? DropAllUsers
-      userMan ? request
-
-      val preUsers = (userMan ? GetUsers).mapTo[Users]
-      val preResult = Await.result(preUsers, timeout.duration)
-
-      userMan ! PoisonPill
-      val userMan2 = system.actorOf(Props[UserManager], "userMan2-id")
-      val postUsers = (userMan2 ? GetUsers).mapTo[Users]
-      val postResult = Await.result(postUsers, timeout.duration)
-
-      preResult.users.size shouldBe 1
-      postResult.users.size shouldBe 1
-
-      compareUsers(preResult.users.head, postResult.users.head)
-
     }
   }
 
