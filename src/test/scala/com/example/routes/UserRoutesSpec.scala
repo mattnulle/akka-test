@@ -5,10 +5,11 @@ import akka.http.scaladsl.model.{ ContentTypes, StatusCodes }
 import akka.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.{ Matchers, WordSpec }
 import spray.json._
+import org.cassandraunit.utils.EmbeddedCassandraServerHelper
 
-class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with PrettyJsonFormatSupport {
+class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with PrettyJsonFormatSupport with CassandraSpec {
 
-  val userManager = system.actorOf(Props[UserManager])
+  val userManager = system.actorOf(Props(new UserManager(session)))
   val uRoutes = new UserRoutes(userManager)
   val dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd kk:mm:ss.SSSS")
 

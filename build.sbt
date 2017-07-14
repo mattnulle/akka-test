@@ -17,8 +17,9 @@ lazy val root = (project in file(".")).
       "com.typesafe.akka" %% "akka-http-spray-json" % "10.0.9",
       "com.typesafe.akka" %% "akka-persistence" % "2.5.3",
       "com.datastax.cassandra" % "cassandra-driver-core" % "3.3.0",
-      "com.datastax.cassandra" % "cassandra-driver-mapping" % "3.3.0",
+      "org.cassandraunit" % "cassandra-unit" % "3.1.3.2",
 
       "org.scalatest" %% "scalatest" % "3.0.1" % Test
     )
   )
+fork in Test := true

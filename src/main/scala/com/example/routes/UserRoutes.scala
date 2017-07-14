@@ -11,8 +11,9 @@ import akka.util.Timeout
 import spray.json.{ DefaultJsonProtocol, PrettyPrinter }
 
 import scala.concurrent.duration._
-import scala.concurrent.Future
+import scala.concurrent.{ Await, Future }
 import com.datastax.driver.core._
+
 import scala.collection.JavaConverters._
 
 // Exception
@@ -57,25 +58,14 @@ trait PrettyJsonFormatSupport extends SprayJsonSupport with DefaultJsonProtocol 
 }
 
 // Actor that manages the connection with Cassandra, adding and reading users
-class UserManager extends Actor with ActorLogging with PrettyJsonFormatSupport {
+class UserManager(session: Session) extends Actor with ActorLogging with PrettyJsonFormatSupport {
 
-  // Cassandra connection established here. If other parts of the program used
-  // the DB, this code should be moved higher and passed down
-  val cluster: Cluster = Cluster.builder()
-    .addContactPoint("127.0.0.1")
-    .build();
-  val session: Session = cluster.connect("test");
+  println(session)
   val preparedSelect = session.prepare("select * from user")
   val preparedInsert = session.prepare(
     "insert into user (createdAt, name, email, password) VALUES (?, ?, ?, ?)"
   )
   val preparedTruncate = session.prepare("truncate user")
-
-  // Make sure the DB connection is closed so we can shut down
-  // Happens when the actor is killed/stopped
-  override def postStop() {
-    if (cluster != null) cluster.close();
-  }
 
   // Receive messages
   def receive = {
@@ -95,8 +85,7 @@ class UserManager extends Actor with ActorLogging with PrettyJsonFormatSupport {
     case GetUsersRequest => {
       // Read the list from the DB, turn them into users, and send.
       val future: ResultSetFuture = session.executeAsync(preparedSelect.bind());
-      val userSet: List[User] = future.get().all().asScala.map(row => User.createUserFromRow(row)).toList
-      sender() ! Users(userSet)
+      sender() ! future
     }
     case DropAllUsersRequest => {
       // Tell the database to drop all user rows
@@ -124,8 +113,9 @@ class UserRoutes(userman: ActorRef) extends PrettyJsonFormatSupport {
       pathEndOrSingleSlash {
         get { // Listens only to GET requests
           implicit val timeout: Timeout = 5.seconds
-          val users: Future[Users] = (userManager ? GetUsersRequest).mapTo[Users]
-          complete(users)
+          val future: Future[ResultSetFuture] = (userManager ? GetUsersRequest).mapTo[ResultSetFuture]
+          val resultSet: ResultSetFuture = Await.result(future, 5 second)
+          complete(new Users(resultSet.get.all().asScala.map(row => User.createUserFromRow(row)).toList))
         } ~
           post { // Listens to POST requests
             implicit val timeout: Timeout = 5.seconds

@@ -4,8 +4,8 @@ import akka.actor.{ ActorSystem, Props }
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives
 import akka.stream.ActorMaterializer
+import com.datastax.driver.core.{ Cluster, Session }
 import com.example.routes._
-import com.datastax.driver.core.{ Cluster, ResultSet, Row, Session }
 
 import scala.io.StdIn
 
@@ -18,7 +18,14 @@ object WebServer extends Directives with SimpleRoutes with PrettyJsonFormatSuppo
     // needed for the future flatMap/onComplete in the end
     implicit val executionContext = system.dispatcher
 
-    val userManager = system.actorOf(Props[UserManager], "user-manager")
+    // Cassandra connection established here. If other parts of the program used
+    // the DB, this code should be moved higher and passed down
+    val cluster: Cluster = Cluster.builder()
+      .addContactPoint("127.0.0.1")
+      .build();
+    val session: Session = cluster.connect("test");
+
+    val userManager = system.actorOf(Props(new UserManager(session)), "user-manager")
     val userRoutes = new UserRoutes(userManager)
 
     val routes = userRoutes.userRoutes ~ BaseRoutes.baseRoutes ~ simpleRoutes
@@ -30,6 +37,7 @@ object WebServer extends Directives with SimpleRoutes with PrettyJsonFormatSuppo
     bindingFuture
       .flatMap(_.unbind()) // trigger unbinding from the port
       .onComplete(_ => system.terminate()) // and shutdown when done
+    if (cluster != null) cluster.close();
 
   }
 
