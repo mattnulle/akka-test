@@ -75,6 +75,12 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
         compareUsers(response, user)
       }
     }
+    "answer to further requests to /users/reset by clearing the user list" in {
+      Get("/users/reset") ~> uRoutes.userRoutes ~> check {
+        status shouldBe StatusCodes.OK
+        responseAs[String] shouldBe "{\n  \"users\": []\n}"
+      }
+    }
   }
 
 }

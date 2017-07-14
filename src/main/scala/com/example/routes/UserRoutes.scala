@@ -9,9 +9,11 @@ import akka.http.scaladsl.server.ExceptionHandler
 import akka.pattern.ask
 import akka.util.Timeout
 import spray.json.{ DefaultJsonProtocol, PrettyPrinter }
+
 import scala.concurrent.duration._
 import scala.concurrent.Future
-import com.datastax.driver.core.{ Cluster, ResultSet, Session }
+import com.datastax.driver.core._
+import scala.collection.JavaConverters._
 
 // Exception
 case class MyValidationException(message: String) extends Exception(message)
@@ -26,6 +28,20 @@ case class User(email: String, password: String, name: Option[String], createdAt
 }
 case class ErrorMessage(code: String, field: String, message: String)
 
+object User {
+  val dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd kk:mm:ss.SSSS")
+
+  // Try to create a user. Might throw a MyValidationException
+  def createUserFromRequest(userRequest: CreateUserRequest): User = {
+    val now = dateFormat.format(new java.util.Date())
+    new User(userRequest.email, userRequest.password, userRequest.name, now)
+  }
+
+  def createUserFromRow(row: Row): User = {
+    new User(row.getString("email"), row.getString("password"), Some(row.getString("name")), row.getString("createdat"));
+  }
+
+}
 // Messages
 case object GetUsersRequest
 case object DropAllUsersRequest
@@ -35,14 +51,13 @@ trait PrettyJsonFormatSupport extends SprayJsonSupport with DefaultJsonProtocol 
   implicit val printer = PrettyPrinter
 
   implicit val userRequestFormat = jsonFormat3(CreateUserRequest)
-  implicit val userFormat = jsonFormat4(User)
+  implicit val userFormat = jsonFormat4(User.apply)
   implicit val usersFormat = jsonFormat1(Users)
   implicit val errorMessageFormat = jsonFormat3(ErrorMessage)
 }
 
 // Actor that manages the connection with Cassandra, adding and reading users
 class UserManager extends Actor with ActorLogging with PrettyJsonFormatSupport {
-  val dateFormat = new java.text.SimpleDateFormat("yyyy-MM-dd kk:mm:ss.SSSS")
 
   // Cassandra connection established here. If other parts of the program used
   // the DB, this code should be moved higher and passed down
@@ -50,13 +65,11 @@ class UserManager extends Actor with ActorLogging with PrettyJsonFormatSupport {
     .addContactPoint("127.0.0.1")
     .build();
   val session: Session = cluster.connect("test");
-
-  // Try to create a user. Might throw a MyValidationException
-  def createUserFromRequest(userRequest: CreateUserRequest): User = {
-    val now = dateFormat.format(new java.util.Date())
-    val user = new User(userRequest.email, userRequest.password, userRequest.name, now)
-    user
-  }
+  val preparedSelect = session.prepare("select * from user")
+  val preparedInsert = session.prepare(
+    "insert into user (createdAt, name, email, password) VALUES (?, ?, ?, ?)"
+  )
+  val preparedTruncate = session.prepare("truncate user")
 
   // Make sure the DB connection is closed so we can shut down
   // Happens when the actor is killed/stopped
@@ -70,8 +83,10 @@ class UserManager extends Actor with ActorLogging with PrettyJsonFormatSupport {
       // Try to create the user from the request.
       // On success, return user; on fail, return a failure with the exception
       try {
-        val user = createUserFromRequest(createUserRequest)
-        session.execute(s"insert into user (createdAt, name, email, password) VALUES ('${user.createdAt}', '${user.name.getOrElse("")}', '${user.email}', '${user.password}')");
+        val user = User.createUserFromRequest(createUserRequest)
+
+        val statement = preparedInsert.bind(user.createdAt, user.name.getOrElse(""), user.email, user.password)
+        session.executeAsync(statement);
         sender() ! user
       } catch {
         case e: MyValidationException =>
@@ -79,16 +94,13 @@ class UserManager extends Actor with ActorLogging with PrettyJsonFormatSupport {
       }
     case GetUsersRequest => {
       // Read the list from the DB, turn them into users, and send.
-      val rs: ResultSet = session.execute("select * from user");
-      var userSet = List.empty[User]
-      rs.forEach((row) => {
-        userSet = userSet :+ new User(row.getString("email"), row.getString("password"), Some(row.getString("name")), row.getString("createdat"));
-      })
+      val future: ResultSetFuture = session.executeAsync(preparedSelect.bind());
+      val userSet: List[User] = future.get().all().asScala.map(row => User.createUserFromRow(row)).toList
       sender() ! Users(userSet)
     }
     case DropAllUsersRequest => {
       // Tell the database to drop all user rows
-      session.execute("truncate user");
+      session.executeAsync(preparedTruncate.bind());
       sender() ! Users(List.empty[User])
     }
   }
