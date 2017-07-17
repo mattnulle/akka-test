@@ -13,6 +13,8 @@ import spray.json.{ DefaultJsonProtocol, PrettyPrinter }
 import scala.concurrent.duration._
 import scala.concurrent.{ Await, Future }
 import com.datastax.driver.core._
+import com.datastax.driver.core.querybuilder.QueryBuilder
+import com.google.common.util.concurrent.{ FutureCallback, Futures }
 
 import scala.collection.JavaConverters._
 
@@ -39,7 +41,12 @@ object User {
   }
 
   def createUserFromRow(row: Row): User = {
-    new User(row.getString("email"), row.getString("password"), Some(row.getString("name")), row.getString("createdat"));
+    new User(
+      row.getString("email"),
+      row.getString("password"),
+      if (!row.getString("name").isEmpty()) Some(row.getString("name")) else None,
+      row.getString("createdat")
+    );
   }
 
 }
@@ -61,36 +68,50 @@ trait PrettyJsonFormatSupport extends SprayJsonSupport with DefaultJsonProtocol 
 class UserManager(session: Session) extends Actor with ActorLogging with PrettyJsonFormatSupport {
 
   println(session)
-  val preparedSelect = session.prepare("select * from user")
-  val preparedInsert = session.prepare(
-    "insert into user (createdAt, name, email, password) VALUES (?, ?, ?, ?)"
-  )
-  val preparedTruncate = session.prepare("truncate user")
+  //  val preparedSelect = session.prepare("select * from user")
+  val preparedSelect = session.prepare(QueryBuilder.select().all().from("user"))
+  val preparedInsert = session.prepare(QueryBuilder.insertInto("user")
+    .value("createdAt", QueryBuilder.bindMarker())
+    .value("name", QueryBuilder.bindMarker())
+    .value("email", QueryBuilder.bindMarker())
+    .value("password", QueryBuilder.bindMarker()))
+  val preparedTruncate = session.prepare(QueryBuilder.truncate("user"))
 
   // Receive messages
   def receive = {
-    case createUserRequest: CreateUserRequest =>
+    case creationRequest: CreateUserRequest =>
       // Try to create the user from the request.
       // On success, return user; on fail, return a failure with the exception
       try {
-        val user = User.createUserFromRequest(createUserRequest)
-
+        val user = User.createUserFromRequest(creationRequest) // validates or throws an exception
         val statement = preparedInsert.bind(user.createdAt, user.name.getOrElse(""), user.email, user.password)
-        session.executeAsync(statement);
-        sender() ! user
+        val future = session.executeAsync(statement);
+        val senderVal = sender()
+        Futures.addCallback(future, new FutureCallback[ResultSet] {
+          override def onSuccess(resultSet: ResultSet): Unit = senderVal ! user
+          override def onFailure(t: Throwable): Unit = sender() ! Failure(new Exception("Something went wrong in the database,server"))
+        })
       } catch {
         case e: MyValidationException =>
           sender() ! Failure(e)
       }
     case GetUsersRequest => {
-      // Read the list from the DB, turn them into users, and send.
-      val future: ResultSetFuture = session.executeAsync(preparedSelect.bind());
-      sender() ! future
+      // Read the list from the DB
+      val future: ResultSetFuture = session.executeAsync(preparedSelect.bind())
+      val senderVal = sender()
+      Futures.addCallback(future, new FutureCallback[ResultSet] {
+        override def onSuccess(result: ResultSet): Unit = senderVal ! new Users(result.all.asScala.toList.map(x => User.createUserFromRow(x)))
+        override def onFailure(t: Throwable): Unit = sender() ! Failure(new Exception("Something went wrong in the database,server"))
+      })
     }
     case DropAllUsersRequest => {
       // Tell the database to drop all user rows
-      session.executeAsync(preparedTruncate.bind());
-      sender() ! Users(List.empty[User])
+      val future: ResultSetFuture = session.executeAsync(preparedTruncate.bind())
+      val senderVal = sender()
+      Futures.addCallback(future, new FutureCallback[ResultSet] {
+        override def onSuccess(resultSet: ResultSet): Unit = senderVal ! Users(List.empty[User])
+        override def onFailure(t: Throwable): Unit = sender() ! Failure(new Exception("Something went wrong in the database,server"))
+      })
     }
   }
 
@@ -105,6 +126,7 @@ class UserRoutes(userman: ActorRef) extends PrettyJsonFormatSupport {
       val Array(msg, field) = e.getMessage().split(",")
       complete(StatusCodes.UnprocessableEntity, new ErrorMessage("invalid", field, msg))
   }
+  implicit val timeout: Timeout = 5.seconds
 
   val userManager = userman // passed in by the ActorSystem
 
@@ -112,22 +134,19 @@ class UserRoutes(userman: ActorRef) extends PrettyJsonFormatSupport {
     pathPrefix("users") {
       pathEndOrSingleSlash {
         get { // Listens only to GET requests
-          implicit val timeout: Timeout = 5.seconds
-          val future: Future[ResultSetFuture] = (userManager ? GetUsersRequest).mapTo[ResultSetFuture]
-          val resultSet: ResultSetFuture = Await.result(future, 5 second)
-          complete(new Users(resultSet.get.all().asScala.map(row => User.createUserFromRow(row)).toList))
+          // The actor returns a Future of a Cassandra ResultSetFuture
+          val users: Future[Users] = (userManager ? GetUsersRequest).mapTo[Users]
+          complete(users)
         } ~
           post { // Listens to POST requests
-            implicit val timeout: Timeout = 5.seconds
             entity(as[CreateUserRequest]) { userRequest =>
-              // Try to create the user
-              val userCreated: Future[User] = (userManager ? userRequest).mapTo[User]
-              complete(StatusCodes.Created, userCreated)
+              // Send the userRequest to the userManager and get a createdUser
+              val createdUser: Future[User] = (userManager ? userRequest).mapTo[User]
+              complete(StatusCodes.Created, createdUser)
             }
           }
       } ~
         path("reset") {
-          implicit val timeout: Timeout = 5.seconds
           val users: Future[Users] = (userManager ? DropAllUsersRequest).mapTo[Users]
           complete(users)
         }

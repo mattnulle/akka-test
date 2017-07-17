@@ -5,7 +5,6 @@ import akka.http.scaladsl.model.{ ContentTypes, StatusCodes }
 import akka.http.scaladsl.testkit.ScalatestRouteTest
 import org.scalatest.{ Matchers, WordSpec }
 import spray.json._
-import org.cassandraunit.utils.EmbeddedCassandraServerHelper
 
 class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with PrettyJsonFormatSupport with CassandraSpec {
 
@@ -33,12 +32,6 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
   }
 
   "UserRoutes" should {
-    "answer to any requests to /users/reset by clearing the user list" in {
-      Get("/users/reset") ~> uRoutes.userRoutes ~> check {
-        status shouldBe StatusCodes.OK
-        responseAs[String] shouldBe "{\n  \"users\": []\n}"
-      }
-    }
     "answer to GET requests to `/users`" in {
       Get("/users") ~> uRoutes.userRoutes ~> check {
         status shouldBe StatusCodes.OK
@@ -76,7 +69,7 @@ class UserRoutesSpec extends WordSpec with Matchers with ScalatestRouteTest with
         compareUsers(response, user)
       }
     }
-    "answer to further requests to /users/reset by clearing the user list" in {
+    "answer to requests to /users/reset by clearing the user list" in {
       Get("/users/reset") ~> uRoutes.userRoutes ~> check {
         status shouldBe StatusCodes.OK
         responseAs[String] shouldBe "{\n  \"users\": []\n}"

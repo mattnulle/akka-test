@@ -23,7 +23,8 @@ trait CassandraSpec extends BeforeAndAfterAll with ScalaFutures {
 
   override protected def afterAll(): Unit = {
     EmbeddedCassandraServerHelper.cleanEmbeddedCassandra()
-    if (EmbeddedCassandraServerHelper.getCluster() != null) EmbeddedCassandraServerHelper.getCluster().close();
+    // Cleaner to include this, but the Cassandra server gets shut down right after anyway, and this takes 1.5 seconds.
+    //    if (EmbeddedCassandraServerHelper.getCluster() != null) EmbeddedCassandraServerHelper.getCluster().close
 
     super.afterAll()
   }

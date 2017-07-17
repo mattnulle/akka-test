@@ -23,22 +23,28 @@ object WebServer extends Directives with SimpleRoutes with PrettyJsonFormatSuppo
     val cluster: Cluster = Cluster.builder()
       .addContactPoint("127.0.0.1")
       .build();
-    val session: Session = cluster.connect("test");
+    try {
+      val session: Session = cluster.connect("test");
+      val userManager = system.actorOf(Props(new UserManager(session)), "user-manager")
+      val userRoutes = new UserRoutes(userManager)
 
-    val userManager = system.actorOf(Props(new UserManager(session)), "user-manager")
-    val userRoutes = new UserRoutes(userManager)
+      val routes = userRoutes.userRoutes ~ BaseRoutes.baseRoutes ~ simpleRoutes
+      val bindingFuture = Http().bindAndHandle(routes, "localhost", 8080)
 
-    val routes = userRoutes.userRoutes ~ BaseRoutes.baseRoutes ~ simpleRoutes
+      println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+      StdIn.readLine() // let it run until user presses return
 
-    val bindingFuture = Http().bindAndHandle(routes, "localhost", 8080)
-
-    println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
-    StdIn.readLine() // let it run until user presses return
-    bindingFuture
-      .flatMap(_.unbind()) // trigger unbinding from the port
-      .onComplete(_ => system.terminate()) // and shutdown when done
-    if (cluster != null) cluster.close();
-
+      println("Shutting down...")
+      if (cluster != null) cluster.close();
+      bindingFuture
+        .flatMap(_.unbind()) // trigger unbinding from the port
+        .onComplete(_ => system.terminate()) // and shutdown when done
+    } catch {
+      case e: com.datastax.driver.core.exceptions.NoHostAvailableException => {
+        println("You have to start Cassandra first. Shutting down...")
+        system.terminate()
+      }
+    }
   }
 
 }
